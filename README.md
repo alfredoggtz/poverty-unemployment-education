@@ -1,3 +1,5 @@
 # Poverty-Unemployment-Education
-## About the project
+## Introduction and Justification
+Currently, unemployment and lack of education among the population have become alarming situations in our country. Unfortunately, despite the significant efforts of governments to eradicate illiteracy and provide education for all, substantial percentages of these issues persist. This paper aims to analyze the relationship between unemployment due to lack of education, literacy problems, and average income, in order to identify key areas for analysis and improvement, and to propose realistic solutions within the current national context.
+The information previously gathered from public APIs and CSV files related to the research, extracted using Python, will initially be stored in a relational database for later migration to a NoSQL database.
 For the initial database implementation, MySQL Workbench will be used to create the database, triggers, stored procedures, and views relevant to the analysis of the problem. Essentially, the database in question has 4 entities and an audit table. Each entity represents an analyzed problem, in addition to a year table to relate all the tables. Since it is a country analysis, a region table is not needed, and since it does not refer to specific individuals, there are no people tables either.
