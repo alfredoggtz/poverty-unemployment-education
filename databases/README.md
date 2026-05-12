@@ -1,5 +1,5 @@
 # README – MySQL Database
-## 📌 Description
+## Description
 
 This module contains the development and administration of the MySQL database used in the poverty, education, and unemployment analysis project.
 
