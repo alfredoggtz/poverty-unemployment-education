@@ -68,7 +68,7 @@ This Python program is responsible for loading the df_pobreza.csv dataset and st
 
 First, the program establishes a connection to the database using mysql.connector. Then, it reads the CSV file with pandas and calculates a new variable called:
 
-3tasa_desempleo#
+#tasa_desempleo#
 
 This variable is obtained from employed and unemployed population data.
 
