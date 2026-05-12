@@ -1,5 +1,5 @@
 # README – MySQL Database
-## Description
+## 📋 Description
 
 This module contains the development and administration of the MySQL database used in the poverty, education, and unemployment analysis project.
 
@@ -13,12 +13,12 @@ Additionally, the following are implemented:
 - SQL Queries
 - MongoDB Integration
 
-## Technologies Used
+## 🛠️ Technologies Used
 - MySQL
 - MySQL Workbench
 - MongoDB
 
-## Main Features
+## 📌 Main Features
 - Storage of collected data.
 - Management of poverty and education-related information.
 - Automation through triggers.
@@ -27,7 +27,7 @@ Additionally, the following are implemented:
 - Data preparation for dashboards.
 - Data migration and cloning to MongoDB.
 
-## Database Objective
+## 📊 Database Objective
 Centralize all project information to facilitate:
 
 - Queries
@@ -36,11 +36,11 @@ Centralize all project information to facilitate:
 - Data integrity
 - System scalability}
 
-## MongoDB Integration
+## 🔄 MongoDB Integration
 
 The database includes a migration process to MongoDB in order to implement a complementary NoSQL solution for flexible data management.
 
-# Script Functionality
+# ⚙️ Script Functionality ⚙️
 ## 📂 EER_Diagram.mwb
 
 This file contains the Entity-Relationship Diagram (EER) of the poverty project database.
@@ -123,7 +123,42 @@ The main purpose is to implement an auditing and control mechanism that facilita
 - Data integrity supervision
 - Security maintenance within the information system
 
-## Execute the scripts
+## 📂 procedures.sql
+
+This SQL file contains the implementation of Stored Procedures in MySQL to automate processes and queries within the database.
+
+Stored procedures allow operations to be executed securely and efficiently, avoiding direct repetitive queries from external applications.
+
+Their main purpose is to:
+
+- Optimize queries
+- Improve performance
+- Centralize business logic
+- Protect database integrity
+
+Additionally, they facilitate the manipulation and administration of information related to educational, economic, and employment indicators.
+
+## 📂 views.sql
+
+This SQL file contains the creation of MySQL views to facilitate the querying and visualization of relevant information within the project.
+
+Views allow combining information from multiple tables and simplifying complex queries related to:
+
+- Education
+- Economy
+- Employment
+- Poverty
+
+Their main purpose is to:
+
+- Facilitate report generation
+- Improve query organization
+- Optimize data analysis
+- Prepare information for dashboards and visualizations
+
+Views function as virtual tables that display processed information without modifying the original data stored in the database.
+
+## ⚡ Execute the scripts
 
 Run the SQL files in the following order:
 
@@ -132,6 +167,15 @@ Run the SQL files in the following order:
 - procedures.sql
 - views.sql
 
+## 👥 Team members
+- Galvan Gutierrez Alfredo
+- García Navarro Samir
+- Severiano Venegas Donnie
+- Valle Benetts Nara
+
+# 📄 License
+
+Academic use for the final project – Universidad Autónoma de Baja California (UABC)
 
 
 
