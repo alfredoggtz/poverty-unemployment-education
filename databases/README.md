@@ -96,7 +96,7 @@ is created to store audit records and operations performed within the database.
 
 Finally, the script includes SELECT queries to visualize table contents and verify that the data has been stored correctly.
 
-## 📂 triggers.sql
+## 📂 triggers_pobreza.sql
 
 This SQL file contains the implementation of MySQL triggers used to automatically register operations performed within the database into the following table:
 
