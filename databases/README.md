@@ -123,7 +123,7 @@ The main purpose is to implement an auditing and control mechanism that facilita
 - Data integrity supervision
 - Security maintenance within the information system
 
-## 📂 procedures.sql
+## 📂 sp.sql
 
 This SQL file contains the implementation of Stored Procedures in MySQL to automate processes and queries within the database.
 
