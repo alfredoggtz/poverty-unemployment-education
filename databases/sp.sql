@@ -1,6 +1,6 @@
 use pobreza;
 delimiter $$
--- 1. full period insert
+-- 1------------------
 create procedure sp_insert_full_period(
     in p_year year,
     in p_avg_schooling decimal(5,2),
@@ -26,7 +26,7 @@ begin
     values (v_id_period, p_employed, p_unemployed, p_unemployment_rate);
     select v_id_period as created_period_id;
 end$$
--- 2. get indicators by year
+-- 2------------------
 create procedure sp_get_indicators_by_year(
     in p_year year
 )
@@ -46,7 +46,7 @@ begin
     join employment_indicator emp on emp.id_period = p.id_period
     where p.year_ = p_year;
 end$$
--- 3. compare two periods
+-- 3------------------
 create procedure sp_compare_periods(
     in p_year_a year,
     in p_year_b year
@@ -65,7 +65,7 @@ begin
     where p.year_ in (p_year_a, p_year_b)
     order by p.year_;
 end$$
--- 4. audit log summary
+-- 4-----------------
 create procedure sp_get_audit_summary(
     in p_table varchar(255),
     in p_operation varchar(10),
@@ -85,7 +85,7 @@ begin
     order by log_date desc
     limit p_limit;
 end$$
--- 5. list periods
+-- 5------------------
 create procedure sp_list_periods()
 begin
     select id_period, year_
