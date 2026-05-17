@@ -9,7 +9,7 @@ def render():
 
     df = load_data()
 
-    st.title("📈 Tendencias Globales")
+    st.title("📈 Tendencias Nacionales")
 
     # Filtros
     año_min, año_max = int(df["año"].min()), int(df["año"].max())
@@ -65,6 +65,5 @@ def render():
 
     with st.expander("Ver datos"):
         st.dataframe(dff)
-
 
 render()
