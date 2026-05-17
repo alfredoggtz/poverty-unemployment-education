@@ -1,7 +1,7 @@
 create database pobreza;
 use pobreza;
 
--- Give user privilegies to concect whit the Python script
+-- Give user privilegies to connect whit the Python script
 grant all privileges on pobreza.* to samir@localhost;
 
 create table period(
