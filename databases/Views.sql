@@ -1,4 +1,5 @@
 use pobreza;
+
 -- 1 full indicators
 create view v_full_indicators as
 select
@@ -21,6 +22,7 @@ from period p
 join education_indicator e on e.id_period = p.id_period
 join economy_indicator ec on ec.id_period = p.id_period
 join employment_indicator emp on emp.id_period = p.id_period;
+
 -- 2 education vs unemployment
 create view v_education_vs_unemployment as
 select
@@ -34,6 +36,7 @@ select
 from period p
 join education_indicator e on e.id_period = p.id_period
 join employment_indicator emp on emp.id_period = p.id_period;
+
 -- 3 unemployment vs economy
 create view v_unemployment_vs_economy as
 select
@@ -48,6 +51,7 @@ select
 from period p
 join employment_indicator emp on emp.id_period = p.id_period
 join economy_indicator ec on ec.id_period = p.id_period;
+
 -- 4 poverty trend
 create view v_poverty_trend as
 select
@@ -61,6 +65,7 @@ from period p
 join economy_indicator ec on ec.id_period = p.id_period
 join education_indicator e on e.id_period = p.id_period
 join employment_indicator emp on emp.id_period = p.id_period;
+
 -- 5 audit activity
 create view v_audit_activity as
 select
@@ -70,6 +75,7 @@ select
     operation
 from audit_log
 order by log_date desc;
+
 -- 6 indicator averages
 create view v_indicator_averages as
 select
@@ -86,6 +92,7 @@ from period p
 join education_indicator e on e.id_period = p.id_period
 join economy_indicator ec on ec.id_period = p.id_period
 join employment_indicator emp on emp.id_period = p.id_period;
+
 -- 7 year over year
 create view v_year_over_year as
 select
@@ -99,6 +106,7 @@ from period p
 join employment_indicator emp on emp.id_period = p.id_period
 join economy_indicator ec on ec.id_period = p.id_period
 join education_indicator e on e.id_period = p.id_period;
+
 -- 8 spending vs outcomes
 create view v_spending_vs_outcomes as
 select
@@ -113,6 +121,7 @@ from period p
 join education_indicator e on e.id_period = p.id_period
 join economy_indicator ec on ec.id_period = p.id_period
 join employment_indicator emp on emp.id_period = p.id_period;
+
 -- 9 population distribution
 create view v_population_distribution as
 select
@@ -122,7 +131,6 @@ select
     emp.unemployed_population
 from period p
 join employment_indicator emp on emp.id_period = p.id_period;
-
 
 -- selects
 select * from v_full_indicators order by year_;
