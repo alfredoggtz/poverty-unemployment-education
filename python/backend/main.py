@@ -195,9 +195,9 @@ def update_config(body: ConfigUpdate):
 # ── Data endpoints ────────────────────────────────────────────────────────────
 
 MYSQL_TABLES = {
-    "period":               "sp_get_all_periods",
-    "education_indicator":  "sp_get_all_education",
-    "economy_indicator":    "sp_get_all_economy",
+    "period": "sp_get_all_periods",
+    "education_indicator": "sp_get_all_education",
+    "economy_indicator": "sp_get_all_economy",
     "employment_indicator": "sp_get_all_employment",
 }
 
