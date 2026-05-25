@@ -13,6 +13,7 @@ Dependencies: requests, pandas
 
 import requests
 import pandas as pd
+import os
 
 # INEGI API authentication token
 token = "25d5cd4c-4f60-d8ea-bdd3-d030ed46aa68"
@@ -170,18 +171,16 @@ def construir_dataset():
     df_inegi = obtener_inegi()
     df_wb = obtener_worldbank()
 
-    # Combine both sources into a single long-format DataFrame
     df_raw = pd.concat([df_inegi, df_wb], ignore_index=True)
 
-    # Pivot to wide format: one row per year, one column per indicator
-    # groupby + mean handles cases where the same year/variable appears more than once
     df = df_raw.groupby(["año", "variable"])["valor"].mean().unstack().reset_index()
     df.columns = [c.lower() for c in df.columns]
 
     df = df[df["año"].between(2005, 2025)].sort_values("año").reset_index(drop=True)
     df = rellenar_nulos(df)
 
-    nombre_archivo = "df_pobreza.csv"
+    # Save CSV relative to this script's directory
+    nombre_archivo = os.path.join(os.path.dirname(__file__), 'df_pobreza.csv')
     df.to_csv(nombre_archivo, index=False)
     print(df.to_string(index=False))
 
