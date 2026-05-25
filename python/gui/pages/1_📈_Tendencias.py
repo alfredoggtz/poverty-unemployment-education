@@ -4,82 +4,170 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import streamlit as st
 import plotly.express as px
 
-from components.filters import render_filters
 from data.loader import load_data
+from components.filters import render_filters
 
+# Configuración
+st.set_page_config(page_title="Tendencias Globales", layout="wide")
 
-def render():
-    st.set_page_config(page_title="Tendencias", layout="wide")
-    st.title("Tendencias Globales")
+# Indicadores disponibles
+INDICADORES = {
+    "Tasa de Pobreza (%)": "tasa_pobreza",
+    "Tasa de Desempleo (%)": "tasa_desempleo",
+    "Índice de Gini": "indice_gini",
+    "Ingreso per Cápita PPP (USD)": "ingreso_per_capita_ppp",
+    "Inflación (%)": "inflacion",
+    "Tasa de Alfabetización (%)": "tasa_alfabetizacion",
+    "Años de Escolaridad": "anos_escolaridad_esp",
+    "Gasto en Educación (% PIB)": "gasto_educacion",
+    "Gasto en Salud (% PIB)": "gasto_salud",
+    "PIB por Trabajador (USD)": "pib_por_trabajador",
+    "Tasa de Actividad Laboral (%)": "tasa_actividad_laboral",
+}
 
-    df = load_data()
-    render_filters(df)
+CHART_TYPES = ["Línea", "Barra", "Área"]
 
-    año_ini, año_fin = st.session_state.rango
-    df_f = df[(df['año'] >= año_ini) & (df['año'] <= año_fin)]
+# Carga de datos y filtro global de año (sidebar)
+df = load_data()
+render_filters(df)
+rango = st.session_state.get("rango", (int(df['año'].min()), int(df['año'].max())))
 
-    # ── Indicadores ──────────────────────────────────────────────────
-    st.markdown("### Indicadores Clave")
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Tasa de Pobreza Promedio", f"{df_f['tasa_pobreza'].mean():.1f}%")
-    col2.metric("Tasa de Desempleo Promedio", f"{df_f['tasa_desempleo'].mean():.1f}%")
-    col3.metric("Índice Gini Promedio", f"{df_f['indice_gini'].mean():.1f}")
-    col4.metric("Ingreso per Cápita Promedio", f"${df_f['ingreso_per_capita_ppp'].mean():,.0f}")
+# Header
+st.markdown("## 📈 Tendencias Globales")
+st.markdown("---")
 
+# Filtros locales en la parte superior
+with st.container():
+    st.markdown("### 🎛️ Filtros")
+    col_a, col_b, col_c = st.columns([3, 1.2, 0.8], gap="medium")
+
+    with col_a:
+        indicadores_sel = st.multiselect(
+            "Indicadores",
+            options=list(INDICADORES.keys()),
+            default=["Tasa de Pobreza (%)", "Tasa de Desempleo (%)", "Índice de Gini", "Ingreso per Cápita PPP (USD)"]
+        )
+
+    with col_b:
+        chart_type = st.radio("Tipo de gráfica", CHART_TYPES, horizontal=False)
+
+    with col_c:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        mostrar_tabla = st.checkbox("Mostrar tabla", value=False)
+
+st.markdown("---")
+
+# Filtrar datos
+df_f = df[(df['año'] >= rango[0]) & (df['año'] <= rango[1])].copy()
+st.markdown(f"Período seleccionado: **{rango[0]} – {rango[1]}** · {rango[1] - rango[0] + 1} años")
+st.markdown("---")
+
+# Validación
+if not indicadores_sel:
+    st.warning("Selecciona al menos un indicador en el panel izquierdo.")
+    st.stop()
+
+# Métricas rápidas
+st.markdown("### 📌 Promedios del período")
+cols_met = st.columns(min(len(indicadores_sel), 4))
+for i, nombre in enumerate(indicadores_sel[:4]):
+    col = INDICADORES[nombre]
+    val = df_f[col].mean()
+    primero = df_f[col].iloc[0]
+    ultimo  = df_f[col].iloc[-1]
+    delta   = ultimo - primero
+    cols_met[i].metric(
+        label=nombre,
+        value=f"{val:,.2f}",
+        delta=f"{delta:+.2f} vs {rango[0]}"
+    )
+
+st.markdown("---")
+
+# Gráfica principal: indicadores seleccionados
+st.markdown("### 📊 Evolución de indicadores seleccionados")
+
+if len(indicadores_sel) == 1:
+    # Gráfica individual
+    col_id = INDICADORES[indicadores_sel[0]]
+    if chart_type == "Línea":
+        fig = px.line(df_f, x='año', y=col_id, markers=True,
+                      labels={col_id: indicadores_sel[0], 'año': 'Año'},
+                      title=indicadores_sel[0])
+    elif chart_type == "Barra":
+        fig = px.bar(df_f, x='año', y=col_id,
+                     labels={col_id: indicadores_sel[0], 'año': 'Año'},
+                     title=indicadores_sel[0])
+    else:
+        fig = px.area(df_f, x='año', y=col_id,
+                      labels={col_id: indicadores_sel[0], 'año': 'Año'},
+                      title=indicadores_sel[0])
+    fig.update_layout(height=420)
+    st.plotly_chart(fig, use_container_width=True)
+
+else:
+    # Múltiples indicadores normalizados en una sola gráfica
+    cols_ids = [INDICADORES[n] for n in indicadores_sel]
+    df_norm = df_f[['año'] + cols_ids].copy()
+    for col in cols_ids:
+        mn, mx = df_norm[col].min(), df_norm[col].max()
+        df_norm[col] = (df_norm[col] - mn) / (mx - mn) if mx != mn else 0
+
+    nombre_map = {INDICADORES[n]: n for n in indicadores_sel}
+    df_norm = df_norm.rename(columns=nombre_map)
+    df_melted = df_norm.melt(id_vars='año', var_name='Indicador', value_name='Valor normalizado (0–1)')
+
+    if chart_type == "Línea":
+        fig = px.line(df_melted, x='año', y='Valor normalizado (0–1)',
+                      color='Indicador', markers=True,
+                      title="Evolución comparada (normalizado 0–1)")
+    elif chart_type == "Barra":
+        fig = px.bar(df_melted, x='año', y='Valor normalizado (0–1)',
+                     color='Indicador', barmode='group',
+                     title="Evolución comparada (normalizado 0–1)")
+    else:
+        fig = px.area(df_melted, x='año', y='Valor normalizado (0–1)',
+                      color='Indicador',
+                      title="Evolución comparada (normalizado 0–1)")
+
+    fig.update_layout(height=450)
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.caption("ℹ️ Los valores están normalizados entre 0 y 1 para permitir comparar indicadores con distintas unidades en una sola gráfica.")
+
+st.markdown("---")
+
+# Gráficas individuales por indicador
+if len(indicadores_sel) > 1:
+    st.markdown("### 🔍 Detalle por indicador")
+    for i in range(0, len(indicadores_sel), 2):
+        par = indicadores_sel[i:i+2]
+        cols = st.columns(len(par), gap="medium")
+        for col_ui, nombre in zip(cols, par):
+            col_id = INDICADORES[nombre]
+            with col_ui:
+                if chart_type == "Línea":
+                    fig = px.line(df_f, x='año', y=col_id, markers=True,
+                                  labels={col_id: nombre, 'año': 'Año'}, title=nombre)
+                elif chart_type == "Barra":
+                    fig = px.bar(df_f, x='año', y=col_id,
+                                 labels={col_id: nombre, 'año': 'Año'}, title=nombre)
+                else:
+                    fig = px.area(df_f, x='año', y=col_id,
+                                  labels={col_id: nombre, 'año': 'Año'}, title=nombre)
+                fig.update_layout(height=320, margin=dict(t=40, b=20))
+                st.plotly_chart(fig, use_container_width=True)
+
+# Tabla de datos
+if mostrar_tabla:
     st.markdown("---")
-
-    # ── Líneas de tendencia principales ──────────────────────────────
-    col1, col2 = st.columns(2)
-
-    fig1 = px.line(
-        df_f, x='año', y='tasa_pobreza',
-        title='Tasa de Pobreza por Año',
-        markers=True, labels={'tasa_pobreza': 'Tasa de Pobreza (%)', 'año': 'Año'}
+    st.markdown("### 🗃️ Datos del período")
+    cols_mostrar = ['año'] + [INDICADORES[n] for n in indicadores_sel]
+    rename_map   = {INDICADORES[n]: n for n in indicadores_sel}
+    st.dataframe(
+        df_f[cols_mostrar].rename(columns=rename_map).set_index('año'),
+        use_container_width=True
     )
-    col1.plotly_chart(fig1, use_container_width=True)
-
-    fig2 = px.line(
-        df_f, x='año', y='tasa_desempleo',
-        title='Tasa de Desempleo por Año',
-        markers=True, labels={'tasa_desempleo': 'Tasa de Desempleo (%)', 'año': 'Año'}
-    )
-    col2.plotly_chart(fig2, use_container_width=True)
-
-    col3, col4 = st.columns(2)
-
-    fig3 = px.line(
-        df_f, x='año', y='indice_gini',
-        title='Índice de Gini por Año',
-        markers=True, labels={'indice_gini': 'Índice Gini', 'año': 'Año'}
-    )
-    col3.plotly_chart(fig3, use_container_width=True)
-
-    fig4 = px.area(
-        df_f, x='año', y='ingreso_per_capita_ppp',
-        title='Ingreso per Cápita (PPP) por Año',
-        labels={'ingreso_per_capita_ppp': 'Ingreso per Cápita (USD)', 'año': 'Año'}
-    )
-    col4.plotly_chart(fig4, use_container_width=True)
-
-    # ── Múltiples indicadores normalizados ────────────────────────────
-    st.markdown("### Evolución Comparada")
-
-    cols_norm = ['tasa_pobreza', 'tasa_desempleo', 'inflacion']
-    df_norm = df_f[['año'] + cols_norm].copy()
-    for col in cols_norm:
-        min_v, max_v = df_norm[col].min(), df_norm[col].max()
-        df_norm[col] = (df_norm[col] - min_v) / (max_v - min_v) if max_v != min_v else 0
-
-    df_melted = df_norm.melt(id_vars='año', var_name='Indicador', value_name='Valor Normalizado')
-    fig5 = px.line(
-        df_melted, x='año', y='Valor Normalizado', color='Indicador',
-        title='Pobreza, Desempleo e Inflación (Normalizado 0–1)',
-        markers=True
-    )
-    st.plotly_chart(fig5, use_container_width=True)
-
-    with st.expander("Ver Datos"):
-        st.dataframe(df_f)
-
-
-render()
+    csv = df_f[cols_mostrar].rename(columns=rename_map).to_csv(index=False).encode('utf-8')
+    st.download_button("⬇️ Descargar CSV", data=csv,
+                       file_name=f"tendencias_{rango[0]}_{rango[1]}.csv", mime="text/csv")

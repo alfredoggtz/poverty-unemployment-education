@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 def render_filters(df: pd.DataFrame):
-    st.sidebar.title("Filtros")
+    st.sidebar.title("🎛️ Filtros")
 
     year_min = int(df['año'].min())
     year_max = int(df['año'].max())
