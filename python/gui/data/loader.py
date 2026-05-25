@@ -1,13 +1,11 @@
+import streamlit as st
 import pandas as pd
-from pathlib import Path
+import os
 
-BASE_DIR = Path(__file__).resolve().parent.parent.parent
-
+@st.cache_data
 def load_data():
-    csv_path = BASE_DIR / "df_pobreza.csv"
-    df_gui = pd.read_csv(csv_path)
-    df_gui["tasa_desempleo"] = (
-        df_gui["pob_desocupada"] / (df_gui["pob_ocupada"] + df_gui["pob_desocupada"])
-    ) * 100
-
-    return df_gui
+    base = os.path.dirname(os.path.abspath(__file__))
+    ruta = os.path.join(base, '..', '..', 'DataExtraction', 'df_pobreza.csv')
+    df = pd.read_csv(ruta)
+    df['año'] = df['año'].astype(int)
+    return df
