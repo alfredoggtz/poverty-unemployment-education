@@ -2,7 +2,6 @@ host=localhost
 user=root
 password=AlfGal2003
 database=pobreza
-mysql_path=C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe
 mongo_host=localhost
 mongo_port=27017
 mongo_user=

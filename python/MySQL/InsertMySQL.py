@@ -10,6 +10,7 @@ Configuration: config.txt (see config.example.txt)
 """
 
 import os
+import shutil
 import subprocess
 import pandas as pd
 from mysql.connector import connect, Error
@@ -43,60 +44,105 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_config = cargar_config(os.path.join(BASE_DIR, '..', 'config.txt'))
 
 
+def find_mysql():
+    """
+    Detects the mysql CLI executable automatically.
+
+    Search order:
+        1. System PATH (works if MySQL is properly installed)
+        2. Common Windows installation directories
+
+    Returns:
+        str: Full path to mysql.exe, or None if not found.
+    """
+    # 1. Check system PATH
+    path = shutil.which('mysql')
+    if path:
+        return path
+
+    # 2. Fallback: common Windows installation paths
+    common_paths = [
+        r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
+        r"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
+        r"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe",
+        r"C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysql.exe",
+        r"C:\xampp\mysql\bin\mysql.exe",
+        r"C:\wamp64\bin\mysql\mysql8.0\bin\mysql.exe",
+    ]
+    for p in common_paths:
+        if os.path.exists(p):
+            return p
+
+    return None
+
+
 def conectar():
     """
     Establishes a connection to the MySQL database.
 
     Before connecting, checks whether the target database exists.
     If it does not, the database is recreated by executing the SQL
-    backup file (DataBaseBackup.sql) via the mysql CLI.
+    backup file (DataBaseBackup.sql) via the mysql CLI, which is
+    detected automatically using find_mysql().
 
     Returns:
         mysql.connector.connection.MySQLConnection | None:
             An open connection on success, or None on failure.
     """
-    try:
-        # Connect without specifying the database to check if it exists
-        conexion_temp = connect(
-            host=db_config['host'],
-            user=db_config['user'],
-            password=db_config['password']
+    db_name  = db_config.get('database', 'pobreza')
+    ruta_sql = os.path.join(BASE_DIR, 'DataBaseBackup.sql')
+
+    def ejecutar_backup():
+        mysql_path = find_mysql()
+        if not mysql_path:
+            print("[ERROR] mysql.exe not found. Install MySQL and add it to PATH.")
+            return False
+        print(f"Using mysql at: {mysql_path}")
+        subprocess.run(
+            [mysql_path, f"-u{db_config['user']}", f"-p{db_config['password']}"],
+            input=open(ruta_sql).read(),
+            text=True
         )
-        cursor = conexion_temp.cursor()
+        print("Database created successfully.")
+        return True
 
-        # Check if the target database exists
-        cursor.execute(f"SHOW DATABASES LIKE '{db_config['database']}'")
-        existe = cursor.fetchone()
-
-        if not existe:
-            print(f"Database '{db_config['database']}' not found. Creating from backup...")
-
-            # Resolve the backup file path relative to this script's directory
-            ruta_sql = os.path.join(BASE_DIR, 'DataBaseBackup.sql')
-
-            # Execute the SQL backup using the mysql CLI
-            # The backup must be generated with: mysqldump --no-data --databases --routines
-            subprocess.run(
-                [db_config['mysql_path'], f"-u{db_config['user']}", f"-p{db_config['password']}"],
-                input=open(ruta_sql).read(),
-                text=True
-            )
-            print("Database created successfully.")
-
-        cursor.close()
-        conexion_temp.close()
-
-        # Connect normally to the database
+    try:
         db_conexion = connect(
             host=db_config['host'],
             user=db_config['user'],
             password=db_config['password'],
-            database=db_config['database']
+            database=db_name
+        )
+        print(f"Database '{db_name}' found. Replacing from backup...")
+        db_conexion.close()
+        if not ejecutar_backup():
+            return None
+
+        db_conexion = connect(
+            host=db_config['host'],
+            user=db_config['user'],
+            password=db_config['password'],
+            database=db_name
         )
         print(f"Connection established: {db_conexion.server_host}")
         return db_conexion
 
     except Error as e:
+        if e.errno == 1049:
+            if not ejecutar_backup():
+                return None
+            try:
+                db_conexion = connect(
+                    host=db_config['host'],
+                    user=db_config['user'],
+                    password=db_config['password'],
+                    database=db_name
+                )
+                print(f"Connection established: {db_conexion.server_host}")
+                return db_conexion
+            except Error as e2:
+                print(f"Connection error after backup: {e2}")
+                return None
         print(f"Connection error: {e}")
         return None
 
@@ -111,7 +157,7 @@ def obtener_df():
     Returns:
         pandas.DataFrame: DataFrame with all indicator columns.
     """
-    df = pd.read_csv('../DataExtraction/df_pobreza.csv')
+    df = pd.read_csv(os.path.join(BASE_DIR, '..', 'DataExtraction', 'df_pobreza.csv'))
 
     # Calculate unemployment rate only if it doesn't already exist in the CSV
     if 'tasa_desempleo' not in df.columns:
@@ -128,9 +174,9 @@ def insertar(df):
     Inserts all rows from the DataFrame into the database.
 
     Each row is inserted across four tables using stored procedures:
-        - sp_insert_period     → period
-        - sp_insert_education  → education_indicator
-        - sp_insert_economy    → economy_indicator
+        - sp_insert_period → period
+        - sp_insert_education → education_indicator
+        - sp_insert_economy → economy_indicator
         - sp_insert_employment → employment_indicator
 
     Each row is committed as a single transaction. On failure,

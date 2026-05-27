@@ -1,0 +1,8 @@
+streamlit
+plotly
+statsmodels
+pandas
+requests
+mysql-connector-python
+pymysql
+pymongo

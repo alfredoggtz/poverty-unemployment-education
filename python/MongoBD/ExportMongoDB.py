@@ -1,171 +1,138 @@
 """
-ExportMongoDB.py
+migrateDatabases.py
 -------------------
-Reads poverty-related indicators from a MySQL database using stored
-procedures and inserts them into a MongoDB database, mirroring the
-four-collection structure:
+Migrates data from the MySQL 'pobreza' database to MongoDB.
+
+Reads connection credentials from config.txt and uses the project's
+stored procedures to extract data, mirroring the four-collection structure:
     - period
     - education_indicator
     - economy_indicator
     - employment_indicator
 
-Dependencies: pymongo, mysql-connector-python
-Configuration: config.txt (see config.example.txt)
+Dependencies: pymysql, pymongo
+Configuration: config.txt (one level above this script)
 """
 
 import os
+import sys
+import pymysql
 from pymongo import MongoClient
-from pymongo.errors import PyMongoError
-from mysql.connector import connect, Error
 from decimal import Decimal
 
 
-def cargar_config(ruta='config.txt'):
-    """
-    Reads connection settings from a plain-text config file.
-
-    Each line must follow the format: key=value
-    Blank lines and lines without '=' are ignored.
-
-    Args:
-        ruta (str): Path to the config file. Defaults to 'config.txt'.
-
-    Returns:
-        dict: Configuration key-value pairs.
-    """
+def load_config(path='config.txt'):
     config = {}
-    with open(ruta, 'r') as f:
-        for linea in f:
-            linea = linea.strip()
-            if linea and '=' in linea:
-                # Split on the first '=' only, in case the value contains '='
-                clave, valor = linea.split('=', 1)
-                config[clave.strip()] = valor.strip()
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and '=' in line:
+                key, value = line.split('=', 1)
+                config[key.strip()] = value.strip()
     return config
 
-# Resolve config path relative to this script's directory
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-config = cargar_config(os.path.join(BASE_DIR, '..', 'config.txt'))
+
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+CONFIG_PATH = os.path.join(BASE_DIR, '..', 'config.txt')
+config      = load_config(CONFIG_PATH)
+
+MYSQL_DB_NAME = config['database']
+MONGO_DB_NAME = config['mongo_database']
+
+COLLECTIONS = {
+    'period': 'sp_get_all_periods',
+    'education_indicator': 'sp_get_all_education',
+    'economy_indicator': 'sp_get_all_economy',
+    'employment_indicator': 'sp_get_all_employment',
+}
 
 
-def conectar_mysql():
-    """
-    Establishes a connection to the MySQL database.
+def convert(value):
+    """Converts types not serializable by MongoDB (Decimal -> float)."""
+    if isinstance(value, Decimal):
+        return float(value)
+    return value
 
-    Returns:
-        mysql.connector.connection.MySQLConnection | None:
-            An open connection on success, or None on failure.
-    """
+
+def migrate_collection(collection_name, sp_name):
+    """Calls the stored procedure and inserts all returned documents into MongoDB."""
+    print(f"\nMigrating '{collection_name}' via {sp_name}...")
     try:
-        conexion = connect(
-            host=config['host'],
-            user=config['user'],
-            password=config['password'],
-            database=config['database']
-        )
-        print(f"MySQL connection established: {config['host']}")
-        return conexion
-    except Error as e:
-        print(f"MySQL connection error: {e}")
-        return None
+        with mysql_conn.cursor(pymysql.cursors.DictCursor) as cursor:
+            cursor.callproc(sp_name)
+
+            rows = []
+            while True:
+                result = cursor.fetchall()
+                if result:
+                    rows.extend(result)
+                if not cursor.nextset():
+                    break
+
+            if not rows:
+                print(f"  [SKIP] No data returned by {sp_name}.")
+                return
+
+            rows = [{k: convert(v) for k, v in row.items()} for row in rows]
+            mongo_db[collection_name].insert_many(rows)
+            print(f"  [OK] {len(rows)} documents inserted into '{collection_name}'.")
+
+    except Exception as e:
+        print(f"  [ERROR] Error migrating '{collection_name}': {e}")
 
 
-def conectar_mongo():
-    """
-    Establishes a connection to MongoDB and returns the target database.
+# MySQL connection
+print("Connecting to MySQL...")
+try:
+    mysql_conn = pymysql.connect(
+        host=config['host'],
+        user=config['user'],
+        password=config['password']
+    )
+except Exception as e:
+    print(f"[ERROR] MySQL connection error: {e}")
+    sys.exit(1)
 
-    Returns:
-        pymongo.database.Database | None:
-            The target database on success, or None on failure.
-    """
-    try:
-        cliente = MongoClient(
-            host=config['mongo_host'],
-            port=int(config['mongo_port']),
-            username=config.get('mongo_user') or None,
-            password=config.get('mongo_password') or None
-        )
-        # Verify the connection is reachable
-        cliente.admin.command('ping')
-        db = cliente[config['mongo_database']]
-        print(f"MongoDB connection established: {config['mongo_host']}:{config['mongo_port']}")
-        return db
-    except PyMongoError as e:
-        print(f"MongoDB connection error: {e}")
-        return None
+with mysql_conn.cursor() as cursor:
+    cursor.execute("SHOW DATABASES")
+    available_dbs = [row[0] for row in cursor.fetchall()]
+    if MYSQL_DB_NAME not in available_dbs:
+        print(f"[ERROR] MySQL database '{MYSQL_DB_NAME}' does not exist.")
+        mysql_conn.close()
+        sys.exit(1)
 
+mysql_conn.select_db(MYSQL_DB_NAME)
+print(f"[OK] Connected to MySQL database '{MYSQL_DB_NAME}'.")
 
-def llamar_sp(cursor, nombre_sp):
-    """
-    Calls a stored procedure and returns its result set as a
-    list of dictionaries.
+# MongoDB connection
+print("Connecting to MongoDB...")
+try:
+    mongo_client = MongoClient(
+        host=config['mongo_host'],
+        port=int(config['mongo_port']),
+        username=config.get('mongo_user') or None,
+        password=config.get('mongo_password') or None
+    )
+    mongo_client.admin.command('ping')
+except Exception as e:
+    print(f"[ERROR] MongoDB connection error: {e}")
+    mysql_conn.close()
+    sys.exit(1)
 
-    Args:
-        cursor: Active MySQL cursor.
-        nombre_sp (str): Name of the stored procedure to call.
+mongo_client.drop_database(MONGO_DB_NAME)
+print(f"[DROP] MongoDB database '{MONGO_DB_NAME}' dropped.")
 
-    Returns:
-        list[dict]: List of rows as dictionaries, keyed by column name.
-    """
-    def convertir(valor):
-        # MySQL returns DECIMAL columns as decimal.Decimal, which MongoDB cannot serialize
-        if isinstance(valor, Decimal):
-            return float(valor)
-        return valor
+mongo_db = mongo_client[MONGO_DB_NAME]
+print(f"[OK] MongoDB database '{MONGO_DB_NAME}' ready.")
 
-    cursor.callproc(nombre_sp)
-    for resultado in cursor.stored_results():
-        columnas = [col[0] for col in resultado.description]
-        return [{col: convertir(val) for col, val in zip(columnas, fila)} for fila in resultado.fetchall()]
-    return []
+# Migration
+print(f"\nStarting migration: MySQL '{MYSQL_DB_NAME}' -> MongoDB '{MONGO_DB_NAME}'")
+print(f"Collections: {list(COLLECTIONS.keys())}\n")
 
+for collection, sp in COLLECTIONS.items():
+    migrate_collection(collection, sp)
 
-def exportar(mysql_con, db):
-    """
-    Reads data from MySQL via stored procedures and inserts it into
-    MongoDB across four collections.
-
-    Stored procedures called:
-        - sp_get_all_periods    → period
-        - sp_get_all_education  → education_indicator
-        - sp_get_all_economy    → economy_indicator
-        - sp_get_all_employment → employment_indicator
-
-    Each collection is cleared before insertion to avoid duplicates
-    on re-runs.
-
-    Args:
-        mysql_con: Open MySQL connection.
-        db (pymongo.database.Database): Target MongoDB database.
-    """
-    cursor = mysql_con.cursor()
-
-    colecciones = ['period', 'education_indicator', 'economy_indicator', 'employment_indicator']
-    procedimientos = ['sp_get_all_periods', 'sp_get_all_education', 'sp_get_all_economy', 'sp_get_all_employment']
-
-    for coleccion, sp in zip(colecciones, procedimientos):
-        print(f"\nExporting '{coleccion}' via {sp}...")
-
-        registros = llamar_sp(cursor, sp)
-        if not registros:
-            print(f"  No data returned by {sp}, skipping.")
-            continue
-
-        # Clear the collection before inserting to avoid duplicates on re-runs
-        db[coleccion].delete_many({})
-        db[coleccion].insert_many(registros)
-        print(f"  [OK] {len(registros)} documents inserted into '{coleccion}'.")
-
-    cursor.close()
-
-
-if __name__ == '__main__':
-    mysql_con = conectar_mysql()
-    db = conectar_mongo()
-
-    if mysql_con is not None and db is not None:
-        exportar(mysql_con, db)
-        mysql_con.close()
-        print("\nExport complete.")
-    else:
-        print("Aborting: could not establish one or both connections.")
+# Cleanup
+mysql_conn.close()
+mongo_client.close()
+print("\n[OK] Migration complete. Connections closed.")
