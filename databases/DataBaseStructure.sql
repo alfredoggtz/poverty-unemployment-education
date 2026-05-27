@@ -1,9 +1,6 @@
 create database pobreza;
 use pobreza;
 
--- Give user privilegies to connect with the Python script
-grant all privileges on pobreza.* to samir@localhost;
-
 create table period(
 id_period int primary key auto_increment,
 year_ year
