@@ -294,7 +294,7 @@ mongo_password=
 mongo_database=pobreza
 ```
 
-The `database` and `mongo_database` fields can be changed to use a different database name. All pipeline scripts and the dashboard read from this file automatically.
+All pipeline scripts and the dashboard read from this file automatically.
 
 ### Execution Order
 
