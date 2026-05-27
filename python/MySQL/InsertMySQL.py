@@ -3,15 +3,14 @@ InsertMySQL.py
 -----------------
 Loads poverty-related indicators from a CSV file and inserts them into
 a MySQL database using stored procedures. If the target database does
-not exist, it is automatically recreated from a SQL backup file.
+not exist, it is automatically recreated from the SQL backup file
+using mysql.connector — no external CLI required.
 
 Dependencies: pandas, mysql-connector-python
 Configuration: config.txt (one level above this script's directory)
 """
 
 import os
-import shutil
-import subprocess
 import pandas as pd
 from mysql.connector import connect, Error
 
@@ -38,64 +37,102 @@ def load_config(path):
     return config
 
 
-def find_mysql():
-    """Detects the mysql CLI executable automatically.
+def run_sql_file(conn, path):
+    """Executes all statements in a SQL file using an existing connection.
 
-    Search order:
-        1. System PATH (works if MySQL is properly installed).
-        2. Common Windows installation directories.
+    Handles ``DELIMITER`` directives produced by mysqldump, which are
+    needed for stored procedures and triggers but are not understood by
+    mysql.connector directly.
 
-    Returns:
-        str: Full path to mysql.exe, or None if not found.
+    Args:
+        conn: An open mysql.connector connection.
+        path (str): Absolute path to the SQL file to execute.
     """
-    path = shutil.which('mysql')
-    if path:
-        return path
+    cursor = conn.cursor()
+    with open(path, 'r', encoding='utf-8') as f:
+        content = f.read()
 
-    common_paths = [
-        r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
-        r"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
-        r"C:\Program Files\MySQL\MySQL Server 5.7\bin\mysql.exe",
-        r"C:\Program Files (x86)\MySQL\MySQL Server 8.0\bin\mysql.exe",
-        r"C:\xampp\mysql\bin\mysql.exe",
-        r"C:\wamp64\bin\mysql\mysql8.0\bin\mysql.exe",
-    ]
-    for p in common_paths:
-        if os.path.exists(p):
-            return p
-    return None
+    delimiter = ';'
+    current = []
+
+    for line in content.splitlines():
+        stripped = line.strip()
+
+        # Handle DELIMITER changes (e.g. DELIMITER ;; or DELIMITER ;)
+        if stripped.upper().startswith('DELIMITER'):
+            new_delim = stripped.split()[1]
+            # Execute any accumulated statement before switching delimiter
+            statement = '\n'.join(current).strip()
+            if statement:
+                try:
+                    cursor.execute(statement)
+                    cursor.fetchall()
+                except Error:
+                    pass
+            current = []
+            delimiter = new_delim
+            continue
+
+        # Check if the current line ends with the active delimiter
+        if stripped.endswith(delimiter):
+            current.append(line[:line.rfind(delimiter)])
+            statement = '\n'.join(current).strip()
+            if statement:
+                try:
+                    cursor.execute(statement)
+                    cursor.fetchall()
+                except Error:
+                    pass
+            current = []
+        else:
+            current.append(line)
+
+    # Execute any remaining statement
+    statement = '\n'.join(current).strip()
+    if statement:
+        try:
+            cursor.execute(statement)
+            cursor.fetchall()
+        except Error:
+            pass
+
+    conn.commit()
+    cursor.close()
 
 
 def run_backup():
-    """Executes DataBaseBackup.sql via the mysql CLI to recreate the database.
+    """Recreates the database by executing DataBaseBackup.sql.
 
-    Detects the mysql executable automatically using ``find_mysql()``.
-    Reads the backup file from the same directory as this script.
+    Connects without selecting a database and runs the backup file,
+    which includes the schema, triggers, stored procedures, and views.
 
     Returns:
-        bool: True if the backup ran successfully, False otherwise.
+        bool: True if the backup executed successfully, False otherwise.
     """
-    mysql_path = find_mysql()
-    if not mysql_path:
-        print("[ERROR] mysql.exe not found. Install MySQL and add it to PATH.")
+    try:
+        conn = connect(
+            host=db_config['host'],
+            user=db_config['user'],
+            password=db_config['password']
+        )
+        print(f"Executing: {os.path.basename(BACKUP_PATH)}")
+        run_sql_file(conn, BACKUP_PATH)
+        conn.close()
+        print("Database created successfully.")
+        return True
+
+    except Error as e:
+        print(f"[ERROR] Could not execute backup: {e}")
         return False
-    print(f"Using mysql at: {mysql_path}")
-    subprocess.run(
-        [mysql_path, f"-u{db_config['user']}", f"-p{db_config['password']}"],
-        input=open(BACKUP_PATH).read(),
-        text=True
-    )
-    print("Database created successfully.")
-    return True
 
 
 def open_connection():
     """Opens and returns a global MySQL connection, recreating the DB if needed.
 
-    Attempts to connect directly to the target database. If the database
-    does not exist (error 1049), runs the SQL backup to recreate it and
-    retries the connection. If the database exists, it is also replaced
-    from backup to ensure a clean state before insertion.
+    Attempts to connect directly to the target database. If it does not
+    exist (error 1049), runs the SQL backup via mysql.connector and retries.
+    If the database already exists, it is also replaced from backup to
+    ensure a clean state before insertion.
 
     Returns:
         mysql.connector.connection.MySQLConnection | None:
@@ -115,6 +152,7 @@ def open_connection():
 
     except Error as e:
         if e.errno == 1049:
+            print(f"Database '{DB_NAME}' not found. Creating from backup...")
             if not run_backup():
                 return None
         else:
