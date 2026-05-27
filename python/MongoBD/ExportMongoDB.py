@@ -1,5 +1,5 @@
 """
-migrateDatabases.py
+ExportMongoDB.py
 -------------------
 Migrates data from the MySQL 'pobreza' database to MongoDB.
 
@@ -9,6 +9,14 @@ stored procedures to extract data, mirroring the four-collection structure:
     - education_indicator
     - economy_indicator
     - employment_indicator
+
+Workflow:
+    1. Parse config.txt to obtain MySQL and MongoDB credentials.
+    2. Connect to MySQL directly with the target database.
+    3. Connect to MongoDB, drop the existing database, and recreate it fresh.
+    4. For each collection, call the corresponding stored procedure, convert
+       any non-serialisable types, and bulk-insert the rows into MongoDB.
+    5. Close both connections.
 
 Dependencies: pymysql, pymongo
 Configuration: config.txt (one level above this script)
@@ -21,7 +29,27 @@ from pymongo import MongoClient
 from decimal import Decimal
 
 
-def load_config(path='config.txt'):
+# ── Config ─────────────────────────────────────────────────────────────────────
+
+def load_config(path: str = 'config.txt') -> dict:
+    """
+    Parse a key=value configuration file into a dictionary.
+
+    Lines that are blank or do not contain an ``=`` sign are silently ignored.
+    The first ``=`` on a line is used as the delimiter, so values may themselves
+    contain ``=`` characters without being truncated.
+
+    Args:
+        path (str): Path to the configuration file. Defaults to ``'config.txt'``
+                    in the current working directory.
+
+    Returns:
+        dict: Mapping of setting names to their string values.
+
+    Raises:
+        FileNotFoundError: If ``path`` does not point to an existing file.
+        IOError: If the file cannot be opened for reading.
+    """
     config = {}
     with open(path, 'r') as f:
         for line in f:
@@ -32,13 +60,17 @@ def load_config(path='config.txt'):
     return config
 
 
-BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+# Resolve the config file path relative to this script so the migration works
+# regardless of the current working directory when it is invoked.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, '..', 'config.txt')
-config      = load_config(CONFIG_PATH)
+config = load_config(CONFIG_PATH)
 
 MYSQL_DB_NAME = config['database']
 MONGO_DB_NAME = config['mongo_database']
 
+# Maps each MongoDB collection name to the MySQL stored procedure that supplies
+# its data. The procedure is expected to return a single result set of rows.
 COLLECTIONS = {
     'period': 'sp_get_all_periods',
     'education_indicator': 'sp_get_all_education',
@@ -47,15 +79,39 @@ COLLECTIONS = {
 }
 
 
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
 def convert(value):
-    """Converts types not serializable by MongoDB (Decimal -> float)."""
+    """
+    Convert a value to a MongoDB-compatible Python type.
+
+    The MySQL driver may return ``Decimal`` objects for numeric columns.
+    MongoDB's BSON encoder does not support ``Decimal``, so they must be
+    converted to ``float`` before insertion.
+
+    Args:
+        value: Any value returned from a MySQL query row.
+
+    Returns:
+        float | any: A ``float`` if ``value`` is a ``Decimal``; otherwise the
+                     original value is returned unchanged.
+    """
     if isinstance(value, Decimal):
         return float(value)
     return value
 
 
-def migrate_collection(collection_name, sp_name):
-    """Calls the stored procedure and inserts all returned documents into MongoDB."""
+def migrate_collection(collection_name: str, sp_name: str) -> None:
+    """
+    Extract all rows from a MySQL stored procedure and insert them into MongoDB.
+
+    Uses the module-level ``mysql_conn`` and ``mongo_db`` objects, which must
+    already be open and authenticated before this function is called.
+
+    Args:
+        collection_name (str): Name of the MongoDB collection to insert into.
+        sp_name (str):         Name of the MySQL stored procedure to call.
+    """
     print(f"\nMigrating '{collection_name}' via {sp_name}...")
     try:
         with mysql_conn.cursor(pymysql.cursors.DictCursor) as cursor:
@@ -81,30 +137,30 @@ def migrate_collection(collection_name, sp_name):
         print(f"  [ERROR] Error migrating '{collection_name}': {e}")
 
 
-# MySQL connection
+# ── MySQL connection ────────────────────────────────────────────────────────────
+
 print("Connecting to MySQL...")
 try:
     mysql_conn = pymysql.connect(
         host=config['host'],
         user=config['user'],
-        password=config['password']
+        password=config['password'],
+        database=MYSQL_DB_NAME
     )
+    print(f"[OK] Connected to MySQL database '{MYSQL_DB_NAME}'.")
+except pymysql.err.OperationalError as e:
+    if e.args[0] == 1049:
+        print(f"[ERROR] MySQL database '{MYSQL_DB_NAME}' does not exist.")
+    else:
+        print(f"[ERROR] MySQL connection error: {e}")
+    sys.exit(1)
 except Exception as e:
     print(f"[ERROR] MySQL connection error: {e}")
     sys.exit(1)
 
-with mysql_conn.cursor() as cursor:
-    cursor.execute("SHOW DATABASES")
-    available_dbs = [row[0] for row in cursor.fetchall()]
-    if MYSQL_DB_NAME not in available_dbs:
-        print(f"[ERROR] MySQL database '{MYSQL_DB_NAME}' does not exist.")
-        mysql_conn.close()
-        sys.exit(1)
 
-mysql_conn.select_db(MYSQL_DB_NAME)
-print(f"[OK] Connected to MySQL database '{MYSQL_DB_NAME}'.")
+# ── MongoDB connection ─────────────────────────────────────────────────────────
 
-# MongoDB connection
 print("Connecting to MongoDB...")
 try:
     mongo_client = MongoClient(
@@ -125,14 +181,18 @@ print(f"[DROP] MongoDB database '{MONGO_DB_NAME}' dropped.")
 mongo_db = mongo_client[MONGO_DB_NAME]
 print(f"[OK] MongoDB database '{MONGO_DB_NAME}' ready.")
 
-# Migration
+
+# ── Migration ──────────────────────────────────────────────────────────────────
+
 print(f"\nStarting migration: MySQL '{MYSQL_DB_NAME}' -> MongoDB '{MONGO_DB_NAME}'")
 print(f"Collections: {list(COLLECTIONS.keys())}\n")
 
 for collection, sp in COLLECTIONS.items():
     migrate_collection(collection, sp)
 
-# Cleanup
+
+# ── Cleanup ────────────────────────────────────────────────────────────────────
+
 mysql_conn.close()
 mongo_client.close()
 print("\n[OK] Migration complete. Connections closed.")

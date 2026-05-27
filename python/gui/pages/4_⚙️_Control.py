@@ -194,9 +194,9 @@ with tab_data:
     data_source = st.radio("Source", ["MySQL", "MongoDB"], horizontal=True)
 
     TABLE_SP = {
-        'Period':                'sp_get_all_periods',
-        'Education Indicators':  'sp_get_all_education',
-        'Economy Indicators':    'sp_get_all_economy',
+        'Period': 'sp_get_all_periods',
+        'Education Indicators': 'sp_get_all_education',
+        'Economy Indicators': 'sp_get_all_economy',
         'Employment Indicators': 'sp_get_all_employment',
     }
 
@@ -246,24 +246,47 @@ with tab_config:
     with col_mysql:
         st.markdown("**🗄️ MySQL**")
         for key in MYSQL_KEYS:
-            cfg[key] = st.text_input(
-                key, value=cfg.get(key, ""),
-                type="password" if key == "password" else "default",
-                key=f"cfg_{key}"
-            )
+            if key == 'database':
+                # Database name is read-only — edit config.txt directly to change it.
+                st.text_input(
+                    key, value=cfg.get(key, ""),
+                    disabled=True,
+                    key=f"cfg_{key}",
+                    help="To change the database name, edit config.txt directly."
+                )
+            else:
+                cfg[key] = st.text_input(
+                    key, value=cfg.get(key, ""),
+                    type="password" if key == "password" else "default",
+                    key=f"cfg_{key}"
+                )
 
     with col_mongo:
         st.markdown("**🍃 MongoDB**")
         for key in MONGO_KEYS:
-            cfg[key] = st.text_input(
-                key, value=cfg.get(key, ""),
-                type="password" if key == "mongo_password" else "default",
-                key=f"cfg_{key}"
-            )
+            if key == 'mongo_database':
+                # Database name is read-only — edit config.txt directly to change it.
+                st.text_input(
+                    key, value=cfg.get(key, ""),
+                    disabled=True,
+                    key=f"cfg_{key}",
+                    help="To change the database name, edit config.txt directly."
+                )
+            else:
+                cfg[key] = st.text_input(
+                    key, value=cfg.get(key, ""),
+                    type="password" if key == "mongo_password" else "default",
+                    key=f"cfg_{key}"
+                )
 
     st.markdown("---")
     if st.button("▶ Save Settings", type="primary"):
         try:
+            # Preserve the original database names from config.txt —
+            # they are read-only in the UI and must not be overwritten.
+            original = load_config()
+            cfg['database'] = original.get('database', cfg.get('database', ''))
+            cfg['mongo_database'] = original.get('mongo_database', cfg.get('mongo_database', ''))
             save_config(cfg)
             st.success("✔ Settings saved to config.txt.")
         except Exception as e:

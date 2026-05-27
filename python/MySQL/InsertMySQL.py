@@ -6,7 +6,7 @@ a MySQL database using stored procedures. If the target database does
 not exist, it is automatically recreated from a SQL backup file.
 
 Dependencies: pandas, mysql-connector-python
-Configuration: config.txt (see config.example.txt)
+Configuration: config.txt (one level above this script's directory)
 """
 
 import os
@@ -16,51 +16,42 @@ import pandas as pd
 from mysql.connector import connect, Error
 
 
-def cargar_config(ruta):
-    """
-    Reads database connection settings from a plain-text config file.
+def load_config(path):
+    """Reads database connection settings from a plain-text config file.
 
-    Each line must follow the format: key=value
-    Blank lines and lines without '=' are ignored.
+    Parses each non-empty line with the format ``key=value``.
+    Splits only on the first ``=`` to support values that contain ``=``.
 
     Args:
-        ruta (str): Path to the config file.
+        path (str): Absolute path to the config file.
 
     Returns:
-        dict: Configuration key-value pairs.
+        dict[str, str]: Configuration key-value pairs.
     """
     config = {}
-    with open(ruta, 'r') as f:
-        for linea in f:
-            linea = linea.strip()
-            if linea and '=' in linea:
-                # Split on the first '=' only, in case the value contains '='
-                clave, valor = linea.split('=', 1)
-                config[clave.strip()] = valor.strip()
+    with open(path, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line and '=' in line:
+                key, value = line.split('=', 1)
+                config[key.strip()] = value.strip()
     return config
-
-# Resolve config path relative to this script's directory
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-db_config = cargar_config(os.path.join(BASE_DIR, '..', 'config.txt'))
 
 
 def find_mysql():
-    """
-    Detects the mysql CLI executable automatically.
+    """Detects the mysql CLI executable automatically.
 
     Search order:
-        1. System PATH (works if MySQL is properly installed)
-        2. Common Windows installation directories
+        1. System PATH (works if MySQL is properly installed).
+        2. Common Windows installation directories.
 
     Returns:
         str: Full path to mysql.exe, or None if not found.
     """
-    # 1. Check system PATH
     path = shutil.which('mysql')
     if path:
         return path
 
-    # 2. Fallback: common Windows installation paths
     common_paths = [
         r"C:\Program Files\MySQL\MySQL Server 8.0\bin\mysql.exe",
         r"C:\Program Files\MySQL\MySQL Server 8.4\bin\mysql.exe",
@@ -72,203 +63,196 @@ def find_mysql():
     for p in common_paths:
         if os.path.exists(p):
             return p
-
     return None
 
 
-def conectar():
-    """
-    Establishes a connection to the MySQL database.
+def run_backup():
+    """Executes DataBaseBackup.sql via the mysql CLI to recreate the database.
 
-    Before connecting, checks whether the target database exists.
-    If it does not, the database is recreated by executing the SQL
-    backup file (DataBaseBackup.sql) via the mysql CLI, which is
-    detected automatically using find_mysql().
+    Detects the mysql executable automatically using ``find_mysql()``.
+    Reads the backup file from the same directory as this script.
+
+    Returns:
+        bool: True if the backup ran successfully, False otherwise.
+    """
+    mysql_path = find_mysql()
+    if not mysql_path:
+        print("[ERROR] mysql.exe not found. Install MySQL and add it to PATH.")
+        return False
+    print(f"Using mysql at: {mysql_path}")
+    subprocess.run(
+        [mysql_path, f"-u{db_config['user']}", f"-p{db_config['password']}"],
+        input=open(BACKUP_PATH).read(),
+        text=True
+    )
+    print("Database created successfully.")
+    return True
+
+
+def open_connection():
+    """Opens and returns a global MySQL connection, recreating the DB if needed.
+
+    Attempts to connect directly to the target database. If the database
+    does not exist (error 1049), runs the SQL backup to recreate it and
+    retries the connection. If the database exists, it is also replaced
+    from backup to ensure a clean state before insertion.
 
     Returns:
         mysql.connector.connection.MySQLConnection | None:
             An open connection on success, or None on failure.
     """
-    db_name  = db_config.get('database', 'pobreza')
-    ruta_sql = os.path.join(BASE_DIR, 'DataBaseBackup.sql')
-
-    def ejecutar_backup():
-        mysql_path = find_mysql()
-        if not mysql_path:
-            print("[ERROR] mysql.exe not found. Install MySQL and add it to PATH.")
-            return False
-        print(f"Using mysql at: {mysql_path}")
-        subprocess.run(
-            [mysql_path, f"-u{db_config['user']}", f"-p{db_config['password']}"],
-            input=open(ruta_sql).read(),
-            text=True
-        )
-        print("Database created successfully.")
-        return True
-
     try:
-        db_conexion = connect(
+        conn = connect(
             host=db_config['host'],
             user=db_config['user'],
             password=db_config['password'],
-            database=db_name
+            database=DB_NAME
         )
-        print(f"Database '{db_name}' found. Replacing from backup...")
-        db_conexion.close()
-        if not ejecutar_backup():
+        print(f"Database '{DB_NAME}' found. Replacing from backup...")
+        conn.close()
+        if not run_backup():
             return None
-
-        db_conexion = connect(
-            host=db_config['host'],
-            user=db_config['user'],
-            password=db_config['password'],
-            database=db_name
-        )
-        print(f"Connection established: {db_conexion.server_host}")
-        return db_conexion
 
     except Error as e:
         if e.errno == 1049:
-            if not ejecutar_backup():
+            if not run_backup():
                 return None
-            try:
-                db_conexion = connect(
-                    host=db_config['host'],
-                    user=db_config['user'],
-                    password=db_config['password'],
-                    database=db_name
-                )
-                print(f"Connection established: {db_conexion.server_host}")
-                return db_conexion
-            except Error as e2:
-                print(f"Connection error after backup: {e2}")
-                return None
-        print(f"Connection error: {e}")
+        else:
+            print(f"Connection error: {e}")
+            return None
+
+    try:
+        conn = connect(
+            host=db_config['host'],
+            user=db_config['user'],
+            password=db_config['password'],
+            database=DB_NAME
+        )
+        print(f"Connection established: {conn.server_host}")
+        return conn
+    except Error as e:
+        print(f"Connection error after backup: {e}")
         return None
 
 
-def obtener_df():
-    """
-    Loads the poverty indicators CSV into a pandas DataFrame.
+def load_dataframe():
+    """Loads the poverty indicators CSV into a pandas DataFrame.
 
-    If the 'tasa_desempleo' (unemployment rate) column is not present,
+    If the ``tasa_desempleo`` (unemployment rate) column is not present,
     it is calculated from the employed and unemployed population columns.
 
     Returns:
         pandas.DataFrame: DataFrame with all indicator columns.
     """
-    df = pd.read_csv(os.path.join(BASE_DIR, '..', 'DataExtraction', 'df_pobreza.csv'))
-
-    # Calculate unemployment rate only if it doesn't already exist in the CSV
+    df = pd.read_csv(CSV_PATH)
     if 'tasa_desempleo' not in df.columns:
         df['tasa_desempleo'] = (
             df['pob_desocupada'] / (df['pob_ocupada'] + df['pob_desocupada'])
         ) * 100
-
     print(f"Dataframe loaded successfully — {len(df)} rows")
     return df
 
 
-def insertar(df):
-    """
-    Inserts all rows from the DataFrame into the database.
+def insert(df):
+    """Inserts all rows from the DataFrame into the database.
 
-    Each row is inserted across four tables using stored procedures:
-        - sp_insert_period → period
-        - sp_insert_education → education_indicator
-        - sp_insert_economy → economy_indicator
-        - sp_insert_employment → employment_indicator
+    Uses the global ``connection`` and ``cursor`` objects. Each row is
+    inserted across four tables via stored procedures in a single atomic
+    transaction. On failure, only that row is rolled back and the error
+    is logged, allowing remaining rows to continue.
 
-    Each row is committed as a single transaction. On failure,
-    the transaction is rolled back and the error is logged,
-    allowing remaining rows to continue processing.
+    Stored procedures called per row:
+        - ``sp_insert_period``    → period
+        - ``sp_insert_education`` → education_indicator
+        - ``sp_insert_economy``   → economy_indicator
+        - ``sp_insert_employment``→ employment_indicator
 
     Args:
-        df (pandas.DataFrame): DataFrame returned by obtener_df().
+        df (pandas.DataFrame): DataFrame returned by ``load_dataframe()``.
     """
-    conexion = conectar()
-    if conexion is None:
-        print('Could not connect to the database.')
-        return
-
-    cursor = conexion.cursor()
     rows_ok = 0
     rows_err = 0
 
-    for indice, fila in df.iterrows():
+    for index, row in df.iterrows():
         try:
-            # ── 1. Period ───────────────────────────────────────────────────
-            # Insert the year and retrieve the generated id_period,
-            # which is used as a foreign key in the three indicator tables
-            cursor.callproc('sp_insert_period', (int(fila['año']),))
-
+            # 1. Period — insert year and retrieve generated id_period
+            cursor.callproc('sp_insert_period', (int(row['año']),))
             id_period = None
             for result in cursor.stored_results():
-                row = result.fetchone()
-                if row:
-                    id_period = row[0]
+                r = result.fetchone()
+                if r:
+                    id_period = r[0]
 
             if id_period is None:
-                raise ValueError(f"sp_insert_period returned no id for year {int(fila['año'])}")
+                raise ValueError(f"sp_insert_period returned no id for year {int(row['año'])}")
 
-            # ── 2. Education ────────────────────────────────────────────────
+            # 2. Education indicators
             cursor.callproc('sp_insert_education', (
                 int(id_period),
-                float(fila['anos_escolaridad_esp']),
-                float(fila['tasa_alfabetizacion']),
-                float(fila['gasto_educacion'])
+                float(row['anos_escolaridad_esp']),
+                float(row['tasa_alfabetizacion']),
+                float(row['gasto_educacion'])
             ))
-            # Consume stored results to avoid "commands out of sync" errors
             for _ in cursor.stored_results():
                 pass
 
-            # ── 3. Economy ──────────────────────────────────────────────────
+            # 3. Economy indicators
             cursor.callproc('sp_insert_economy', (
                 int(id_period),
-                float(fila['indice_gini']),
-                float(fila['ingreso_per_capita_ppp']),
-                float(fila['inflacion']),
-                float(fila['pib_por_trabajador']),
-                float(fila['tasa_pobreza']),
-                float(fila['gasto_salud'])
+                float(row['indice_gini']),
+                float(row['ingreso_per_capita_ppp']),
+                float(row['inflacion']),
+                float(row['pib_por_trabajador']),
+                float(row['tasa_pobreza']),
+                float(row['gasto_salud'])
             ))
             for _ in cursor.stored_results():
                 pass
 
-            # ── 4. Employment ───────────────────────────────────────────────
+            # 4. Employment indicators
             cursor.callproc('sp_insert_employment', (
                 int(id_period),
-                int(fila['pob_ocupada']),
-                int(fila['pob_desocupada']),
-                int(fila['poblacion_total']),
-                float(fila['tasa_actividad_laboral']),
-                float(fila['tasa_desempleo'])
+                int(row['pob_ocupada']),
+                int(row['pob_desocupada']),
+                int(row['poblacion_total']),
+                float(row['tasa_actividad_laboral']),
+                float(row['tasa_desempleo'])
             ))
             for _ in cursor.stored_results():
                 pass
 
-            # Commit all four inserts as a single atomic transaction
-            conexion.commit()
+            connection.commit()
             rows_ok += 1
-            print(f"  [OK] Year {int(fila['año'])} inserted (id_period={id_period})")
+            print(f"  [OK] Year {int(row['año'])} inserted (id_period={id_period})")
 
         except Error as e:
-            # Rollback the current row's transaction on database error
-            conexion.rollback()
+            connection.rollback()
             rows_err += 1
-            print(f"  [ERROR] Row {indice} (year {fila.get('año', '?')}): {e}")
+            print(f"  [ERROR] Row {index} (year {row.get('año', '?')}): {e}")
 
         except Exception as e:
-            # Rollback on any other unexpected error
-            conexion.rollback()
+            connection.rollback()
             rows_err += 1
-            print(f"  [ERROR] Row {indice} (year {fila.get('año', '?')}): {e}")
+            print(f"  [ERROR] Row {index} (year {row.get('año', '?')}): {e}")
 
-    cursor.close()
-    conexion.close()
     print(f"\nProcess complete — {rows_ok} rows inserted, {rows_err} errors.")
 
 
-if __name__ == '__main__':
-    df = obtener_df()
-    insertar(df)
+# ── Global configuration ───────────────────────────────────────────────────────
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+db_config = load_config(os.path.join(BASE_DIR, '..', 'config.txt'))
+DB_NAME = db_config.get('database', 'pobreza')
+BACKUP_PATH = os.path.join(BASE_DIR, 'DataBaseBackup.sql')
+CSV_PATH = os.path.join(BASE_DIR, '..', 'DataExtraction', 'df_pobreza.csv')
+
+# ── Global connection ──────────────────────────────────────────────────────────
+connection = open_connection()
+
+if connection is None:
+    print("Could not connect to the database.")
+else:
+    cursor = connection.cursor()
+    df = load_dataframe()
+    insert(df)
+    cursor.close()
+    connection.close()

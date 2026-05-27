@@ -1,6 +1,6 @@
 host=localhost
 user=root
-password=pene
+password=your_text
 database=pobreza
 mongo_host=localhost
 mongo_port=27017
