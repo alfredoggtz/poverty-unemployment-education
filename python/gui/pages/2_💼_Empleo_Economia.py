@@ -1,4 +1,51 @@
+"""Página «Empleo & Economía» del tablero de indicadores socioeconómicos.
+
+Este módulo define una de las páginas de la aplicación multipágina de Streamlit.
+Se centra en el mercado laboral y su relación con variables macroeconómicas
+(productividad, desempleo, inflación, ingreso y desigualdad) dentro del rango de
+años seleccionado por el usuario en los filtros de la barra lateral.
+
+La página se renderiza de arriba hacia abajo en el siguiente orden:
+
+    1. Encabezado con el período y el número de años analizados.
+    2. Fila de cuatro métricas resumen (población ocupada/desocupada, PIB por
+       trabajador y desempleo), con su variación respecto al primer año.
+    3. Gráfica de área apilada de población ocupada vs. desocupada (misma
+       unidad: personas).
+    4. Serie temporal de PIB por trabajador y tasa de desempleo con doble eje Y.
+    5. Dos diagramas de dispersión lado a lado: inflación vs. desempleo (curva
+       de Phillips) e ingreso per cápita vs. desigualdad, ambos con tendencia OLS.
+    6. Tabla expandible con los datos del período y botón de descarga a CSV.
+
+Dependencias del proyecto:
+    data.loader.load_data: Devuelve el ``DataFrame`` con los indicadores. Debe
+        incluir, como mínimo, las columnas usadas en este módulo (``año``,
+        ``pob_ocupada``, ``pob_desocupada``, ``poblacion_total``,
+        ``pib_por_trabajador``, ``tasa_desempleo``, ``inflacion``,
+        ``indice_gini`` e ``ingreso_per_capita_ppp``).
+    components.filters.render_filters: Dibuja los controles de filtrado y fija
+        el rango de años en ``st.session_state``.
+
+Dependencias de terceros:
+    streamlit, plotly. Las líneas de tendencia OLS (``trendline='ols'``)
+    requieren además el paquete ``statsmodels`` instalado en el entorno.
+
+Estado de sesión (st.session_state):
+    rango (tuple[int, int]): Año inicial y final seleccionados en los filtros.
+        Si la clave no existe, se usa el rango completo del ``DataFrame``.
+
+Ejemplo de uso:
+    Esta página no se ejecuta de forma aislada; Streamlit la carga
+    automáticamente desde el directorio ``pages/`` al correr la app::
+
+        streamlit run Inicio.py
+"""
+
 import sys, os
+
+# Permite importar los paquetes del proyecto (``data``, ``components``) cuando la
+# página se ejecuta desde el subdirectorio ``pages/``: se agrega el directorio
+# raíz del proyecto al ``sys.path``.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
@@ -8,21 +55,31 @@ import plotly.graph_objects as go
 from data.loader import load_data
 from components.filters import render_filters
 
+# Configuración de la página. Debe ser la primera llamada a Streamlit del script.
 st.set_page_config(page_title="Empleo & Economía", layout="wide")
 
+# Carga del conjunto de datos y renderizado de los filtros de la barra lateral.
 df = load_data()
 render_filters(df)
+
+# Rango de años activo. Si los filtros aún no lo han fijado en la sesión, se
+# toma por defecto el período completo disponible en los datos.
 rango = st.session_state.get("rango", (int(df['año'].min()), int(df['año'].max())))
 
+# ── Encabezado ────────────────────────────────────────────────────────────────
 st.markdown("## 💼 Empleo & Economía")
 st.markdown(f"Período: **{rango[0]} – {rango[1]}** · {rango[1] - rango[0] + 1} años")
 st.markdown("---")
 
+# Subconjunto de datos restringido al rango seleccionado. Se copia para evitar
+# advertencias de Pandas al asignar sobre una vista.
 df_f = df[(df['año'] >= rango[0]) & (df['año'] <= rango[1])].copy()
 
 # ── Métricas rápidas ──────────────────────────────────────────────────────────
 st.markdown("### 📌 Resumen del período")
 
+# Cada tupla describe una métrica: (etiqueta visible, columna, unidad a mostrar).
+# Una unidad vacía indica un conteo de personas, que se formatea sin decimales.
 metrics = [
     ("Población Ocupada","pob_ocupada",""),
     ("Población Desocupada", "pob_desocupada",""),
@@ -30,30 +87,39 @@ metrics = [
     ("Tasa de Desempleo","tasa_desempleo","%"),
 ]
 
+# Una columna por métrica. El delta compara el último valor del período contra
+# el primero; el formato cambia según la unidad (enteros para conteos de
+# personas, un decimal para porcentajes y montos en USD).
 cols = st.columns(4)
 for col, (label, campo, unidad) in zip(cols, metrics):
     inicio = df_f[campo].iloc[0]
     fin    = df_f[campo].iloc[-1]
     delta  = fin - inicio
     if unidad == "":
-        val_str   = f"{fin:,.0f}"
+        # Conteos de personas: separador de miles, sin decimales.
+        val_str = f"{fin:,.0f}"
         delta_str = f"{delta:+,.0f} vs {rango[0]}"
     else:
-        val_str   = f"{fin:,.1f} {unidad}"
+        # Porcentajes y montos: un decimal y la unidad correspondiente.
+        val_str = f"{fin:,.1f} {unidad}"
         delta_str = f"{delta:+.1f} vs {rango[0]}"
     col.metric(label=label, value=val_str, delta=delta_str)
 
 st.markdown("---")
 
 # ── Gráfica 1: Población ocupada vs desocupada (área apilada) ─────────────────
+# Ambas series comparten unidad (personas), por lo que un área apilada muestra
+# tanto la fuerza laboral total como la proporción desocupada.
 st.markdown("### 👥 Población ocupada vs desocupada")
 st.caption("Área apilada — misma unidad (personas). Se aprecia cómo crece la fuerza laboral total y qué parte queda desocupada.")
 
+# ``melt`` pasa las columnas a formato largo (una fila por año y estado) para
+# que Plotly Express pueda colorear por la categoría ``Estado``.
 df_pob = df_f[['año', 'pob_ocupada', 'pob_desocupada']].melt(
     id_vars='año', var_name='Estado', value_name='Personas'
 )
 df_pob['Estado'] = df_pob['Estado'].replace({
-    'pob_ocupada':    'Ocupada',
+    'pob_ocupada': 'Ocupada',
     'pob_desocupada': 'Desocupada',
 })
 
@@ -73,6 +139,8 @@ st.plotly_chart(fig1, use_container_width=True)
 st.markdown("---")
 
 # ── Gráfica 2: PIB por trabajador vs Tasa de desempleo (eje doble) ────────────
+# Productividad (USD) y desempleo (%) tienen unidades distintas, por lo que se
+# usan dos ejes Y independientes (``y1`` izquierdo, ``y2`` derecho).
 st.markdown("### 📉 Productividad vs Desempleo")
 st.caption(
     "Eje izquierdo = PIB por trabajador (USD). "
@@ -81,6 +149,7 @@ st.caption(
 )
 
 fig2 = go.Figure()
+# Serie sobre el eje izquierdo (y1): PIB por trabajador.
 fig2.add_trace(go.Scatter(
     x=df_f['año'], y=df_f['pib_por_trabajador'],
     mode='lines+markers', name='PIB por Trabajador (USD)',
@@ -88,6 +157,7 @@ fig2.add_trace(go.Scatter(
     marker=dict(size=5),
     yaxis='y1'
 ))
+# Serie sobre el eje derecho (y2): tasa de desempleo (línea discontinua).
 fig2.add_trace(go.Scatter(
     x=df_f['año'], y=df_f['tasa_desempleo'],
     mode='lines+markers', name='Tasa de Desempleo (%)',
@@ -108,14 +178,17 @@ st.plotly_chart(fig2, use_container_width=True)
 st.markdown("---")
 
 # ── Gráficas 3 y 4: Correlaciones (2 columnas) ────────────────────────────────
+# Dos diagramas de dispersión colocados lado a lado, cada uno con su línea de
+# tendencia OLS y los puntos etiquetados por año.
 st.markdown("### 🔗 Análisis de correlación")
 corr_col1, corr_col2 = st.columns(2, gap="medium")
 
 with corr_col1:
+    # Relación inflación–desempleo (hipótesis de la curva de Phillips).
     st.caption("Inflación vs Desempleo — ¿relación de Phillips?")
     fig3 = px.scatter(
         df_f, x='inflacion', y='tasa_desempleo', text='año',
-        trendline='ols',
+        trendline='ols',  # Requiere statsmodels.
         labels={'inflacion':'Inflación (%)', 'tasa_desempleo': 'Desempleo (%)'},
         color_discrete_sequence=["#378ADD"],
     )
@@ -124,10 +197,11 @@ with corr_col1:
     st.plotly_chart(fig3, use_container_width=True)
 
 with corr_col2:
+    # Relación ingreso per cápita–desigualdad.
     st.caption("Ingreso per Cápita vs Desigualdad (Gini)")
     fig4 = px.scatter(
         df_f, x='ingreso_per_capita_ppp', y='indice_gini', text='año',
-        trendline='ols',
+        trendline='ols',  # Requiere statsmodels.
         labels={
             'ingreso_per_capita_ppp':'Ingreso per Cápita (USD PPP)',
             'indice_gini':'Índice de Gini',
@@ -141,10 +215,10 @@ with corr_col2:
 st.markdown("---")
 
 # ── Tabla opcional ─────────────────────────────────────────────────────────────
+# Sección colapsable con los datos crudos del período y opción de descarga.
 with st.expander("🗃️ Ver datos del período"):
-    cols_show = ['año', 'pob_ocupada','pob_desocupada','poblacion_total',
-                 'pib_por_trabajador','tasa_desempleo','inflacion', 'indice_gini',
-                 'ingreso_per_capita_ppp']
+    # Columnas a mostrar y su renombrado para una presentación legible.
+    cols_show = ['año', 'pob_ocupada','pob_desocupada','poblacion_total', 'pib_por_trabajador','tasa_desempleo','inflacion', 'indice_gini', 'ingreso_per_capita_ppp']
     rename = {
         'pob_ocupada':'Pob. Ocupada',
         'pob_desocupada':'Pob. Desocupada',
@@ -159,6 +233,7 @@ with st.expander("🗃️ Ver datos del período"):
         df_f[cols_show].rename(columns=rename).set_index('año'),
         use_container_width=True
     )
+    # Exporta la misma vista a CSV (codificado en UTF-8) para la descarga.
     csv = df_f[cols_show].rename(columns=rename).to_csv(index=False).encode('utf-8')
     st.download_button(
         "⬇️ Descargar CSV", data=csv,
