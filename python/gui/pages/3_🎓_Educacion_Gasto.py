@@ -1,53 +1,52 @@
-"""Página «Educación & Gasto Social» del tablero de indicadores socioeconómicos.
+"""«Educación & Gasto Social» page of the socioeconomic indicators dashboard.
 
-Este módulo define una de las páginas de la aplicación multipágina de Streamlit.
-Se centra en la educación (escolaridad, alfabetización) y el gasto social
-(educación y salud como porcentaje del PIB), así como su relación con la pobreza
-y el desempleo, dentro del rango de años seleccionado por el usuario en los
-filtros de la barra lateral.
+This module defines one page of the multipage Streamlit application. It focuses
+on education (schooling, literacy) and social spending (education and health as a
+percentage of GDP), as well as their relationship with poverty and unemployment,
+within the year range selected by the user in the sidebar filters.
 
-La página se renderiza de arriba hacia abajo en el siguiente orden:
+The page renders top to bottom in the following order:
 
-    1. Encabezado con el período y el número de años analizados.
-    2. Fila de cuatro métricas resumen (escolaridad, alfabetización, gasto en
-       educación y gasto en salud), con su variación respecto al primer año.
-    3. Serie temporal de inflación, gasto en educación y gasto en salud sobre un
-       mismo eje porcentual (rangos comparables).
-    4. Serie temporal de años de escolaridad y alfabetización con doble eje Y.
-    5. Gráfica de barras agrupadas que compara gasto en educación vs. salud.
-    6. Dos diagramas de dispersión lado a lado: escolaridad vs. pobreza y gasto
-       en educación vs. desempleo (con tamaño de punto = gasto en salud), ambos
-       con línea de tendencia OLS.
-    7. Tabla expandible con los datos del período y botón de descarga a CSV.
+    1. Header with the period and the number of years analyzed.
+    2. A row of four summary metrics (schooling, literacy, education spending and
+       health spending), with their variation relative to the first year.
+    3. A time series of inflation, education spending and health spending on a
+       single percentage axis (comparable ranges).
+    4. A time series of years of schooling and literacy with a dual Y axis.
+    5. A grouped bar chart comparing education vs. health spending.
+    6. Two side-by-side scatter plots: schooling vs. poverty and education
+       spending vs. unemployment (point size = health spending), both with an
+       OLS trendline.
+    7. An expandable table with the period's data and a CSV download button.
 
-Dependencias del proyecto:
-    data.loader.load_data: Devuelve el ``DataFrame`` con los indicadores. Debe
-        incluir, como mínimo, las columnas usadas en este módulo (``año``,
+Project dependencies:
+    data.loader.load_data: Returns the ``DataFrame`` with the indicators. It must
+        include, at minimum, the columns used in this module (``año``,
         ``anos_escolaridad_esp``, ``tasa_alfabetizacion``, ``gasto_educacion``,
-        ``gasto_salud``, ``inflacion``, ``tasa_pobreza`` y ``tasa_desempleo``).
-    components.filters.render_filters: Dibuja los controles de filtrado y fija
-        el rango de años en ``st.session_state``.
+        ``gasto_salud``, ``inflacion``, ``tasa_pobreza`` and ``tasa_desempleo``).
+    components.filters.render_filters: Draws the filter controls and sets the
+        year range in ``st.session_state``.
 
-Dependencias de terceros:
-    streamlit, plotly. Las líneas de tendencia OLS (``trendline='ols'``)
-    requieren además el paquete ``statsmodels`` instalado en el entorno.
+Third-party dependencies:
+    streamlit, plotly. The OLS trendlines (``trendline='ols'``) additionally
+    require the ``statsmodels`` package to be installed in the environment.
 
-Estado de sesión (st.session_state):
-    rango (tuple[int, int]): Año inicial y final seleccionados en los filtros.
-        Si la clave no existe, se usa el rango completo del ``DataFrame``.
+Session state (st.session_state):
+    rango (tuple[int, int]): Start and end year selected in the filters. If the
+        key does not exist, the full range of the ``DataFrame`` is used.
 
-Ejemplo de uso:
-    Esta página no se ejecuta de forma aislada; Streamlit la carga
-    automáticamente desde el directorio ``pages/`` al correr la app::
+Usage example:
+    This page is not run standalone; Streamlit loads it automatically from the
+    ``pages/`` directory when the app is launched::
 
         streamlit run Inicio.py
 """
 
 import sys, os
 
-# Permite importar los paquetes del proyecto (``data``, ``components``) cuando la
-# página se ejecuta desde el subdirectorio ``pages/``: se agrega el directorio
-# raíz del proyecto al ``sys.path``.
+# Allows importing the project packages (``data``, ``components``) when the page
+# runs from the ``pages/`` subdirectory: the project root directory is appended
+# to ``sys.path``.
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import streamlit as st
@@ -57,30 +56,30 @@ import plotly.graph_objects as go
 from data.loader import load_data
 from components.filters import render_filters
 
-# Configuración de la página. Debe ser la primera llamada a Streamlit del script.
+# Page configuration. Must be the first Streamlit call in the script.
 st.set_page_config(page_title="Educación & Gasto Social", layout="wide")
 
-# Carga del conjunto de datos y renderizado de los filtros de la barra lateral.
+# Load the dataset and render the sidebar filters.
 df = load_data()
 render_filters(df)
 
-# Rango de años activo. Si los filtros aún no lo han fijado en la sesión, se
-# toma por defecto el período completo disponible en los datos.
+# Active year range. If the filters have not set it in the session yet, the full
+# period available in the data is used by default.
 rango = st.session_state.get("rango", (int(df['año'].min()), int(df['año'].max())))
 
-# ── Encabezado ────────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.markdown("## 🎓 Educación & Gasto Social")
 st.markdown(f"Período: **{rango[0]} – {rango[1]}** · {rango[1] - rango[0] + 1} años")
 st.markdown("---")
 
-# Subconjunto de datos restringido al rango seleccionado. Se copia para evitar
-# advertencias de Pandas al asignar sobre una vista.
+# Data subset restricted to the selected range. Copied to avoid Pandas warnings
+# when assigning over a view.
 df_f = df[(df['año'] >= rango[0]) & (df['año'] <= rango[1])].copy()
 
-# ── Métricas rápidas ──────────────────────────────────────────────────────────
+# ── Quick metrics ─────────────────────────────────────────────────────────────
 st.markdown("### 📌 Resumen del período")
 
-# Cada tupla describe una métrica: (etiqueta visible, columna, unidad a mostrar).
+# Each tuple describes a metric: (visible label, column, unit to display).
 metrics = [
     ("Años de Escolaridad","anos_escolaridad_esp", "años"),
     ("Alfabetización","tasa_alfabetizacion", "%"),
@@ -88,8 +87,8 @@ metrics = [
     ("Gasto en Salud","gasto_salud","% PIB"),
 ]
 
-# Una columna por métrica. El delta compara el último valor del período contra
-# el primero; todos los valores se muestran con dos decimales.
+# One column per metric. The delta compares the last value of the period against
+# the first one; all values are shown with two decimals.
 cols = st.columns(4)
 for col, (label, campo, unidad) in zip(cols, metrics):
     inicio = df_f[campo].iloc[0]
@@ -103,9 +102,9 @@ for col, (label, campo, unidad) in zip(cols, metrics):
 
 st.markdown("---")
 
-# ── Gráfica 1: Inflación · Gasto educación · Gasto salud (mismo eje %) ────────
-# Las tres series están en porcentaje y comparten rangos similares (~3–8%), por
-# lo que se grafican sobre un único eje Y para compararlas directamente.
+# ── Chart 1: Inflation · Education spending · Health spending (same % axis) ───
+# The three series are in percentage and share similar ranges (~3–8%), so they
+# are plotted on a single Y axis for direct comparison.
 st.markdown("### 📊 Inflación y gasto social (% del PIB / %)")
 st.caption(
     "Las tres variables están en porcentaje y tienen rangos similares (3–8%). "
@@ -113,7 +112,7 @@ st.caption(
 )
 
 fig1 = go.Figure()
-# Cada tupla define una serie: (columna, nombre en la leyenda, color de línea).
+# Each tuple defines a series: (column, legend name, line color).
 series_pct = [
     ("inflacion","Inflación (%)","#E24B4A"),
     ("gasto_educacion","Gasto en Educación (% PIB)","#378ADD"),
@@ -137,9 +136,9 @@ st.plotly_chart(fig1, use_container_width=True)
 
 st.markdown("---")
 
-# ── Gráfica 2: Escolaridad vs Alfabetización (eje doble) ─────────────────────
-# Años de escolaridad y porcentaje de alfabetización tienen unidades distintas,
-# por lo que se usan dos ejes Y independientes (``y1`` izquierdo, ``y2`` derecho).
+# ── Chart 2: Schooling vs Literacy (dual axis) ────────────────────────────────
+# Years of schooling and literacy percentage have different units, so two
+# independent Y axes are used (``y1`` left, ``y2`` right).
 st.markdown("### 📚 Escolaridad y alfabetización")
 st.caption(
     "Eje izquierdo = Años de escolaridad (12–15 años). "
@@ -148,7 +147,7 @@ st.caption(
 )
 
 fig2 = go.Figure()
-# Serie sobre el eje izquierdo (y1): años de escolaridad.
+# Series on the left axis (y1): years of schooling.
 fig2.add_trace(go.Scatter(
     x=df_f['año'], y=df_f['anos_escolaridad_esp'],
     mode='lines+markers', name='Años de Escolaridad',
@@ -156,7 +155,7 @@ fig2.add_trace(go.Scatter(
     marker=dict(size=5),
     yaxis='y1'
 ))
-# Serie sobre el eje derecho (y2): tasa de alfabetización (línea discontinua).
+# Series on the right axis (y2): literacy rate (dashed line).
 fig2.add_trace(go.Scatter(
     x=df_f['año'], y=df_f['tasa_alfabetizacion'],
     mode='lines+markers', name='Tasa de Alfabetización (%)',
@@ -176,14 +175,14 @@ st.plotly_chart(fig2, use_container_width=True)
 
 st.markdown("---")
 
-# ── Gráfica 3: Gasto educación vs salud (barras agrupadas) ───────────────────
-# Barras agrupadas por año que permiten comparar, año a año, cuánto del PIB se
-# destina a cada rubro de gasto social.
+# ── Chart 3: Education vs health spending (grouped bars) ──────────────────────
+# Bars grouped by year that allow comparing, year by year, how much of GDP goes
+# to each social spending category.
 st.markdown("### 💰 Gasto en Educación vs Salud (% del PIB)")
 st.caption("Barras agrupadas por año — fácil comparar cuánto se destina a cada rubro.")
 
-# ``melt`` pasa las columnas a formato largo (una fila por año y tipo de gasto)
-# para que Plotly Express pueda agrupar las barras por la categoría ``Tipo``.
+# ``melt`` reshapes the columns to long format (one row per year and spending
+# type) so that Plotly Express can group the bars by the ``Tipo`` category.
 df_gasto = df_f[['año', 'gasto_educacion', 'gasto_salud']].melt(
     id_vars='año', var_name='Tipo', value_name='% del PIB'
 )
@@ -205,18 +204,18 @@ st.plotly_chart(fig3, use_container_width=True)
 
 st.markdown("---")
 
-# ── Gráficas 4 y 5: Correlaciones (2 columnas) ────────────────────────────────
-# Dos diagramas de dispersión colocados lado a lado, cada uno con su línea de
-# tendencia OLS y los puntos etiquetados por año.
+# ── Charts 4 and 5: Correlations (2 columns) ──────────────────────────────────
+# Two scatter plots placed side by side, each with its OLS trendline and points
+# labeled by year.
 st.markdown("### 🔗 Análisis de correlación")
 corr_col1, corr_col2 = st.columns(2, gap="medium")
 
 with corr_col1:
-    # Relación escolaridad–pobreza.
+    # Schooling–poverty relationship.
     st.caption("Años de escolaridad vs Pobreza — ¿más educación, menos pobreza?")
     fig4 = px.scatter(
         df_f, x='anos_escolaridad_esp', y='tasa_pobreza', text='año',
-        trendline='ols',  # Requiere statsmodels.
+        trendline='ols',  # Requires statsmodels.
         labels={
             'anos_escolaridad_esp': 'Años de Escolaridad',
             'tasa_pobreza': 'Pobreza (%)',
@@ -228,13 +227,13 @@ with corr_col1:
     st.plotly_chart(fig4, use_container_width=True)
 
 with corr_col2:
-    # Relación gasto en educación–desempleo. El tamaño de cada punto codifica una
-    # tercera variable: el gasto en salud (``size='gasto_salud'``).
+    # Education spending–unemployment relationship. The size of each point encodes
+    # a third variable: health spending (``size='gasto_salud'``).
     st.caption("Gasto en educación vs Desempleo (tamaño = gasto en salud)")
     fig5 = px.scatter(
         df_f, x='gasto_educacion', y='tasa_desempleo', text='año',
         size='gasto_salud',
-        trendline='ols',  # Requiere statsmodels.
+        trendline='ols',  # Requires statsmodels.
         labels={
             'gasto_educacion': 'Gasto Educación (% PIB)',
             'tasa_desempleo': 'Desempleo (%)',
@@ -247,10 +246,10 @@ with corr_col2:
 
 st.markdown("---")
 
-# ── Tabla opcional ─────────────────────────────────────────────────────────────
-# Sección colapsable con los datos crudos del período y opción de descarga.
+# ── Optional table ────────────────────────────────────────────────────────────
+# Collapsible section with the raw data for the period and a download option.
 with st.expander("🗃️ Ver datos del período"):
-    # Columnas a mostrar y su renombrado para una presentación legible.
+    # Columns to display and their renaming for a readable presentation.
     cols_show = ['año', 'anos_escolaridad_esp', 'tasa_alfabetizacion', 'gasto_educacion', 'gasto_salud', 'inflacion', 'tasa_pobreza', 'tasa_desempleo']
     rename = {
         'anos_escolaridad_esp':'Escolaridad (años)',
@@ -265,7 +264,7 @@ with st.expander("🗃️ Ver datos del período"):
         df_f[cols_show].rename(columns=rename).set_index('año'),
         use_container_width=True
     )
-    # Exporta la misma vista a CSV (codificado en UTF-8) para la descarga.
+    # Export the same view to CSV (UTF-8 encoded) for the download.
     csv = df_f[cols_show].rename(columns=rename).to_csv(index=False).encode('utf-8')
     st.download_button(
         "⬇️ Descargar CSV", data=csv,
